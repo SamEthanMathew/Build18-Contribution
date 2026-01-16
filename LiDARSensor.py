@@ -501,10 +501,9 @@ class NetworkRPLidar:
         self.last_angle = 360.0 # Track previous angle to detect wrap-around
 
     def iter_measurements(self, max_buf_meas=3000):
-        # We ignore max_buf_meas as we just stream what we get
-        # Protocol V2: NewScan(1) + Quality(1) + Angle(4) + Distance(4)
-        struct_fmt = '<BBff' 
-        struct_len = struct.calcsize(struct_fmt)
+        # Protocol: Sync(0xA5) + Quality(1) + Angle(4) + Distance(4) = 10 bytes total
+        struct_fmt = '<Bff'  # quality, angle, distance
+        struct_len = struct.calcsize(struct_fmt)  # 9 bytes
         
         # Accept connection if not yet connected
         if not self.conn:
@@ -533,16 +532,15 @@ class NetworkRPLidar:
                         return # Connection closed
                     data += packet
                     
-                new_scan_int, quality, angle, distance = struct.unpack(struct_fmt, data)
+                quality, angle, distance = struct.unpack(struct_fmt, data)
                 
-                # DEBUG: Print Raw Hex and Values to diagnose protocol mismatch
+                # DEBUG: Print Raw Hex and Values
                 if random.randint(0, 1000) == 0: 
-                     print(f"RAW: {data.hex()} | A={angle:.1f} D={distance:.0f}", flush=True)
+                     print(f"RAW: {data.hex()} | Q={quality} A={angle:.1f} D={distance:.0f}", flush=True)
 
-                # Robust Logic: Detect start of new scan via angle wrap-around
+                # Detect start of new scan via angle wrap-around
                 new_scan = False
                 if angle < self.last_angle and (self.last_angle - angle) > 100:
-                     # e.g. 359 -> 1 (diff 358)
                      new_scan = True
                 self.last_angle = angle
                 yield (new_scan, quality, angle, distance) 
