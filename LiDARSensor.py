@@ -494,32 +494,43 @@ class NetworkRPLidar:
         self.conn = None
         self.addr = None
         print(f"Network Lidar: Listening on 0.0.0.0:{self.port}...")
-        print("Waiting for connection from Raspberry Pi...")
-        self.conn, self.addr = self.sock.accept()
-        print(f"Network Lidar: Connected by {self.addr}")
+        # print("Waiting for connection from Raspberry Pi...")
+        # self.conn, self.addr = self.sock.accept() # Moved to iter_measurements to prevent blocking init
+        # print(f"Network Lidar: Connected by {self.addr}")
 
     def iter_measurements(self, max_buf_meas=3000):
         # We ignore max_buf_meas as we just stream what we get
         struct_fmt = '<Bff' # uchar, float, float
         struct_len = struct.calcsize(struct_fmt)
         
+        # Accept connection if not yet connected
+        if not self.conn:
+            print("Waiting for connection from Raspberry Pi...")
+            self.conn, self.addr = self.sock.accept()
+            print(f"Network Lidar: Connected by {self.addr}")
+
         while True:
             try:
+                # Check connection
+                if not self.conn:
+                    return
+
                 # Robustly read 'struct_len' bytes
                 data = b''
                 while len(data) < struct_len:
+                    if not self.conn: return
                     packet = self.conn.recv(struct_len - len(data))
                     if not packet:
                         return # Connection closed
                     data += packet
                     
                 quality, angle, distance = struct.unpack(struct_fmt, data)
-                # Yield tuple compatible with RPLidar library: (new_scan, quality, angle, distance)
-                # We don't track new_scan bit in this simple protocol, passing False (0) is fine for our SLAM logic
                 yield (0, quality, angle, distance) 
+            except OSError:
+                return # Socket closed or bad descriptor
             except Exception as e:
                 print(f"Network error: {e}")
-                break
+                return
     
     # Alias to support the typo in some rplidar versions/calls
     def iter_measurments(self, max_buf_meas=3000):
