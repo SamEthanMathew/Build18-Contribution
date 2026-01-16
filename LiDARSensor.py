@@ -970,12 +970,12 @@ if __name__ == "__main__":
                              save_msg = f"Saved to {export_dir}/"
             
             # --- Rendering ---
+            # center_x/y is now the WORLD ORIGIN (0,0) on screen
+            map_origin_x = offset_x + view_offset_x
+            map_origin_y = offset_y + view_offset_y
+
             if not args.headless:
                 screen.fill(COLOR_BG)
-                
-                # center_x/y is now the WORLD ORIGIN (0,0) on screen
-                map_origin_x = offset_x + view_offset_x
-                map_origin_y = offset_y + view_offset_y
     
                 # 1. Draw Grid (Centered on World Origin)
                 # Calculate grid step size
