@@ -87,6 +87,7 @@ def run_sender(host, port, device_port):
 
     # 3. Connect to Server (Laptop) - Data Channel
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     try:
         print(f"Connecting Data Stream to {host}:{port}...")
         sock.connect((host, port))
@@ -113,6 +114,7 @@ def run_sender(host, port, device_port):
             try:
                 sock.sendall(payload)
                 count += 1
+                if count % 100 == 0: os.write(1, b'.') # Print dot for progress
             except BrokenPipeError:
                 print("Data Connection lost.")
                 break

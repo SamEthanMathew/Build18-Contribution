@@ -489,6 +489,7 @@ class NetworkRPLidar:
         self.port = port
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         self.sock.bind(('0.0.0.0', self.port))
         self.sock.listen(1)
         self.conn = None
@@ -526,7 +527,8 @@ class NetworkRPLidar:
                     data += packet
                     
                 quality, angle, distance = struct.unpack(struct_fmt, data)
-                # print(f"DEBUG RX: {angle:.1f}deg, {distance:.1f}mm")
+                # if random.randint(0, 100) == 0: 
+                print(f"DEBUG RX: {angle:.1f}deg, {distance:.1f}mm")
                 yield (0, quality, angle, distance) 
             except OSError as e:
                 print(f"Network Lidar: Socket Error: {e}")
