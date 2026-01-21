@@ -1,0 +1,55 @@
+{
+  "source_map": "slam_map_20260114-220509.png",
+  "timestamp": "2026-01-21T10:47:21.208058",
+  "resolution_mm_per_pixel": 7.5,
+  "grid_resolution_mm": 30,
+  "waypoints_pixel": [
+    [
+      561,
+      823
+    ],
+    [
+      336,
+      526
+    ],
+    [
+      370,
+      585
+    ],
+    [
+      677,
+      1074
+    ],
+    [
+      422,
+      622
+    ]
+  ],
+  "waypoints_mm": [
+    [
+      4207.5,
+      6172.5
+    ],
+    [
+      2520.0,
+      3945.0
+    ],
+    [
+      2775.0,
+      4387.5
+    ],
+    [
+      5077.5,
+      8055.0
+    ],
+    [
+      3165.0,
+      4665.0
+    ]
+  ],
+  "path_length_mm": 11527.88,
+  "path_length_m": 11.528,
+  "num_waypoints": 5,
+  "planning_time_seconds": 15.16,
+  "rrt_nodes_explored": 2964
+}

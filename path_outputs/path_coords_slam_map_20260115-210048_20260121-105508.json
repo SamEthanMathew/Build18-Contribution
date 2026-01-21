@@ -1,0 +1,39 @@
+{
+  "source_map": "slam_map_20260115-210048.png",
+  "timestamp": "2026-01-21T10:55:08.243358",
+  "resolution_mm_per_pixel": 7.5,
+  "grid_resolution_mm": 30,
+  "waypoints_pixel": [
+    [
+      275,
+      481
+    ],
+    [
+      209,
+      323
+    ],
+    [
+      249,
+      601
+    ]
+  ],
+  "waypoints_mm": [
+    [
+      2062.5,
+      3607.5
+    ],
+    [
+      1567.5,
+      2422.5
+    ],
+    [
+      1867.5,
+      4507.5
+    ]
+  ],
+  "path_length_mm": 3390.7,
+  "path_length_m": 3.391,
+  "num_waypoints": 3,
+  "planning_time_seconds": 8.9,
+  "rrt_nodes_explored": 4186
+}
