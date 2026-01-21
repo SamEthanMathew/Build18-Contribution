@@ -14,6 +14,9 @@ from scipy.spatial import KDTree
 from scipy.ndimage import binary_closing
 from numba import jit
 import argparse
+import socket
+import struct
+import random
 
 # --- SLAM Implementation ---
 def best_fit_transform(A, B):
@@ -481,16 +484,124 @@ slam_system = SimpleSLAM()
 # 46 degrees
 # 133 degrees
 
-class LidarSensor:
-    def __init__(self, port=None):
-        if port is None:
-            port = self._detect_serial_port()
+# --- Network Lidar Wrapper ---
+class NetworkRPLidar:
+    def __init__(self, port=12345):
+        self.port = port
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        self.sock.bind(('0.0.0.0', self.port))
+        self.sock.listen(1)
+        self.conn = None
+        self.addr = None
+        print(f"Network Lidar: Listening on 0.0.0.0:{self.port}...")
+        # print("Waiting for connection from Raspberry Pi...")
+        # self.conn, self.addr = self.sock.accept() # Moved to iter_measurements to prevent blocking init
+        self.last_angle = 360.0 # Track previous angle to detect wrap-around
+
+    def iter_measurements(self, max_buf_meas=3000):
+        # Protocol: Sync(0xA5) + Quality(1) + Angle(4) + Distance(4) = 10 bytes total
+        struct_fmt = '<Bff'  # quality, angle, distance
+        struct_len = struct.calcsize(struct_fmt)  # 9 bytes
         
-        # Note: self.lidar is initialized inside _detect_serial_port if detection succeeds,
-        # otherwise we might need to initialize it here if specific port passed.
-        if not hasattr(self, 'lidar'):
-             print(f"Attempting to connect to specific/fallback port: {port}")
-             self.lidar = RPLidar(port, timeout=5)
+        # Accept connection if not yet connected
+        if not self.conn:
+            print("Waiting for connection from Raspberry Pi...")
+            self.conn, self.addr = self.sock.accept()
+            print(f"Network Lidar: Connected by {self.addr}")
+
+        while True:
+            try:
+                # Resync logic: Read 1 byte until we find 0xA5
+                while True:
+                    if not self.conn: return
+                    sync = self.conn.recv(1)
+                    if not sync: return
+                    if sync == b'\xa5':
+                        break
+                    # If we are here, we are skipping garbage bytes to find sync
+                
+                 # Now read the remaining 10 bytes (struct_len)
+                data = b''
+                while len(data) < struct_len:
+                    if not self.conn: return
+                    packet = self.conn.recv(struct_len - len(data))
+                    if not packet:
+                        print("Network Lidar: Receive returned 0 bytes (Client closed).")
+                        return # Connection closed
+                    data += packet
+                    
+                quality, angle, distance = struct.unpack(struct_fmt, data)
+                
+                # DEBUG: Print Raw Hex and Values
+                if random.randint(0, 1000) == 0: 
+                     print(f"RAW: {data.hex()} | Q={quality} A={angle:.1f} D={distance:.0f}", flush=True)
+
+                # Detect start of new scan via angle wrap-around
+                new_scan = False
+                if angle < self.last_angle and (self.last_angle - angle) > 100:
+                     new_scan = True
+                self.last_angle = angle
+                yield (new_scan, quality, angle, distance) 
+            except struct.error:
+                 print(f"Struct Error (Size mismatch? Data: {len(data)})")
+                 return
+            except OSError as e:
+                print(f"Network Lidar: Socket Error: {e}")
+                return # Socket closed or bad descriptor
+            except Exception as e:
+                print(f"Network error: {e}")
+                return
+    
+    # Alias to support the typo in some rplidar versions/calls
+    def iter_measurments(self, max_buf_meas=3000):
+        return self.iter_measurements(max_buf_meas)
+                
+    def stop(self):
+        # Only close the client connection, keep server listener open for reconnection
+        if self.conn:
+            self.conn.close()
+            self.conn = None
+            
+    def shutdown(self):
+        # Actually close the server listener
+        self.stop()
+        if self.sock:
+             self.sock.close()
+        
+    def stop_motor(self):
+        pass
+        
+    def disconnect(self):
+        self.stop()
+        
+    def clear_input(self):
+        pass
+        
+    def get_health(self):
+        return "Network Mode"
+        
+    def get_info(self):
+        return {"model": "Network", "serial": "Remote"}
+
+# --- Lidar Sensor Class ---
+class LidarSensor:
+    def __init__(self, port=None, network_mode=False, network_port=12345):
+        self.network_mode = network_mode
+        
+        if self.network_mode:
+            print(f"Initializing Network Lidar on port {network_port}...")
+            self.lidar = NetworkRPLidar(port=network_port)
+        else:
+            if port is None:
+                port = self._detect_serial_port()
+            
+            # Note: self.lidar is initialized inside _detect_serial_port if detection succeeds,
+            # otherwise we might need to initialize it here if specific port passed.
+            if not hasattr(self, 'lidar'):
+                 print(f"Attempting to connect to specific/fallback port: {port}")
+                 self.lidar = RPLidar(port, timeout=5)
         
         # Robust initialization
         try:
@@ -803,6 +914,9 @@ if __name__ == "__main__":
     # Parse Arguments
     parser = argparse.ArgumentParser(description="LiDAR SLAM System")
     parser.add_argument("--headless", action="store_true", help="Run without a graphical window (for Pi/SSH)")
+    parser.add_argument("--port", type=str, default=None, help="Specific serial port for LiDAR (e.g. /dev/ttyUSB0)")
+    parser.add_argument("--network", action="store_true", help="Run in network mode (receive data from Pi)")
+    parser.add_argument("--net_port", type=int, default=12345, help="Network port for streaming (default: 12345)")
     args = parser.parse_args()
 
     if args.headless:
@@ -811,7 +925,11 @@ if __name__ == "__main__":
         print("Running in HEADLESS mode. No window will be shown.")
 
     # Initialize LiDAR
-    lidar = LidarSensor()
+    try:
+        lidar = LidarSensor(port=args.port, network_mode=args.network, network_port=args.net_port)
+    except Exception as e:
+        print(f"Failed to initialize LiDAR: {e}")
+        sys.exit(1)
     time.sleep(2) # Allow time for spin up and connection
     
     # Try to slow down motor to increase point density (more samples per degree)
@@ -873,6 +991,49 @@ if __name__ == "__main__":
     # Start input thread
     input_thread = threading.Thread(target=console_listener, args=(slam_system,), daemon=True)
     input_thread.start()
+
+    # --- Control Server Thread (for bi-directional CLI from Pi) ---
+    def control_server_thread(slam_sys, port=12346):
+        print(f"Control Server: Listening on port {port}")
+        server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            server_sock.bind(('0.0.0.0', port))
+            server_sock.listen(1)
+            
+            while True:
+                conn, addr = server_sock.accept()
+                # print(f"Control: Connected by {addr}")
+                try:
+                     while True:
+                        data = conn.recv(1024)
+                        if not data: break
+                        
+                        msg = data.decode('utf-8').strip()
+                        response = "UNKNOWN"
+                        
+                        if msg == "GET_TURN":
+                             # Calculate turn command
+                             cmd = slam_sys.get_turn_command()
+                             if cmd is None:
+                                 response = "TURN None"
+                             else:
+                                 response = f"TURN {cmd:.2f}"
+                        else:
+                             response = f"ECHO {msg}"
+                             
+                        conn.sendall(response.encode('utf-8'))
+                except Exception as e:
+                    print(f"Control Error: {e}")
+                finally:
+                    conn.close()
+        except Exception as e:
+            print(f"Failed to bind control server: {e}")
+
+    if args.network:
+        # Start control server
+        ctrl_thread = threading.Thread(target=control_server_thread, args=(slam_system,), daemon=True)
+        ctrl_thread.start()
 
     # Colors (Sci-Fi Theme)
     # Colors (ROS / Occupancy Grid Theme)
@@ -1258,5 +1419,11 @@ if __name__ == "__main__":
         pass
     finally:
         print("Stopping LiDAR...")
-        lidar.stop()
+        try:
+            if hasattr(lidar.lidar, 'shutdown'):
+                lidar.lidar.shutdown()
+            else:
+                lidar.stop()
+        except:
+            pass
         pygame.quit()
