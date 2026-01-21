@@ -88,6 +88,23 @@ Our LiDAR-based SLAM implementation uses:
    - Real-time map visualization
    - Export to PNG for path planning
 
+### Path Planning + Navigation
+
+After SLAM generates an occupancy grid, LOLA plans motion through the environment using a lightweight **sampling-based path planner**.
+
+****Pipeline:****
+1. **Export occupancy grid** from SLAM (`map_exports/`)
+2. Run `path_planner.py` to generate a **collision-free path** using **RRT (Rapidly-exploring Random Tree)**
+3. Output waypoints + visualization:
+   - `path_outputs/path_coords_*.json` (waypoint list)
+   - `path_outputs/path_map_*.png` (path overlay on map)
+4. `example_use_path.py` loads the JSON waypoints and sends motor commands to follow the route autonomously
+
+****Why RRT?****
+RRT is fast, simple, and works well on occupancy grids where obstacles can be irregular. It lets us generate feasible paths quickly without needing heavy compute or complex global planning libraries — perfect for a Pi-based rover.
+
+This planning system turns our SLAM map into **actionable navigation**, enabling LOLA to autonomously explore rooms rather than just map them.
+
 ### 3D Reconstruction
 
 We use **CUT3R** (Camera-Unified Transformer for 3D Reconstruction):
