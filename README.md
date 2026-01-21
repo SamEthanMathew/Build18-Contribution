@@ -243,6 +243,9 @@ If you use CUT3R in your work, please cite:
 }
 ```
 
+## Demo
+Check out our 3D model generation & SLAM Pipeline demo's work: [Demo](https://github.com/SamEthanMathew/LOLA_Autonomous-3D-Mapping-Robot/commits/v1.0)
+
 ## License
 
 This project is open-source and available under the MIT License.
