@@ -1,0 +1,559 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LOLA — autonomous 3D-mapping robot</title>
+<meta name="description" content="A $150 mecanum rover that maps a room with LiDAR SLAM and rebuilds it in 3D from RGB video. Built in one week for Build18 2026.">
+
+<!-- the rover marker from the pygame HUD: a green dot inside its range ring -->
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23000'/><circle cx='16' cy='16' r='11' fill='none' stroke='%2300ff00' stroke-opacity='.45' stroke-width='1.5'/><circle cx='16' cy='16' r='4.5' fill='%2300ff00'/></svg>">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="LOLA — autonomous 3D-mapping robot">
+<meta property="og:description" content="A $150 mecanum rover that maps a room with LiDAR SLAM and rebuilds it in 3D from RGB video. Built in one week for Build18 2026.">
+<meta property="og:url" content="https://samethanmathew.github.io/LOLA_Autonomous-3D-Mapping-Robot/">
+<meta property="og:image" content="https://samethanmathew.github.io/LOLA_Autonomous-3D-Mapping-Robot/maps/map-traverse.png">
+<meta name="twitter:card" content="summary_large_image">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+
+<a class="skip" href="#pipeline">Skip to the pipeline</a>
+
+<!-- ============================= HERO ============================= -->
+<header class="hero">
+  <div class="hero__grid" aria-hidden="true"></div>
+
+  <div class="hero__inner">
+    <div class="hero__text">
+      <p class="eyebrow">Build18 2026 &middot; Carnegie Mellon ECE &middot; seven days</p>
+      <h1>It drives into a room it has never seen<br>and draws&nbsp;it.</h1>
+      <p class="lede">
+        LOLA is a mecanum-drive rover on a Raspberry Pi 4. A spinning LiDAR feeds a
+        scan-matching SLAM front end that builds a 30&nbsp;mm occupancy grid in real time;
+        a phone-grade RGB camera feeds a transformer that rebuilds the same room as a
+        coloured 3D point cloud. No depth sensor. No ROS. Total parts cost, $154.74.
+      </p>
+
+      <dl class="stats">
+        <div><dt>Bill of materials</dt><dd>$154.74</dd></div>
+        <div><dt>Grid resolution</dt><dd>30 mm</dd></div>
+        <div><dt>Scan match</dt><dd>PL&#8209;ICP</dd></div>
+        <div><dt>Depth sensors</dt><dd>0</dd></div>
+      </dl>
+
+      <div class="hero__cta">
+        <a class="btn btn--primary" href="#rollouts">Watch it run</a>
+        <a class="btn" href="https://github.com/SamEthanMathew/LOLA_Autonomous-3D-Mapping-Robot">Source on GitHub</a>
+      </div>
+    </div>
+
+    <figure class="scan">
+      <div class="scan__frame">
+        <canvas id="sweep" width="900" height="760" role="img"
+          aria-label="An occupancy grid exported by LOLA: white free space, black walls and unknown space, and a green line tracing the route the rover drove."></canvas>
+        <noscript><img src="maps/map-traverse.png" alt="Occupancy grid exported by LOLA."></noscript>
+      </div>
+      <figcaption>
+        <span class="tag">map_exports/slam_map_20260115-221847.png</span>
+        Not a render. This is the file the rover wrote to disk after driving a corridor and
+        two rooms, replayed here one revolution at a time.
+      </figcaption>
+    </figure>
+  </div>
+
+  <!-- the legend is a real key: these five colours keep their meaning for the whole page -->
+  <ul class="legend" aria-label="Colour key used throughout this page">
+    <li><i class="sw sw--free"></i>Free space, driven through and confirmed empty</li>
+    <li><i class="sw sw--occ"></i>Wall, obstacle, or never observed</li>
+    <li><i class="sw sw--path"></i>Where the rover actually went</li>
+    <li><i class="sw sw--goal"></i>Where it intends to go next</li>
+    <li><i class="sw sw--axis"></i>World origin and axes</li>
+  </ul>
+</header>
+
+<!-- ============================= PIPELINE ============================= -->
+<section id="pipeline" class="section section--pipeline">
+  <div class="wrap">
+    <p class="eyebrow"><span class="rule"></span>How it fits together</p>
+    <h2>Two loops that never touch the same wire</h2>
+    <p class="section__lede">
+      LOLA solves the room twice, in two independent passes. The <strong>geometry loop</strong> runs
+      live at walking pace and answers <em>where am I and what is solid</em>. The
+      <strong>appearance pass</strong> runs later, off the robot, and answers
+      <em>what does this room actually look like</em>. They share a camera mount and nothing else.
+    </p>
+  </div>
+
+  <div class="diagram-scroll">
+    <svg class="diagram" viewBox="0 0 1300 470" role="img"
+      aria-label="Pipeline diagram. On the robot: RPLiDAR and mecanum motors on a Raspberry Pi 4. LiDAR readings stream over TCP port 12345 to a laptop, which runs PL-ICP scan matching, builds a 30 millimetre occupancy grid and exports a PNG. The PNG feeds an RRT planner that outputs waypoints as JSON. A turn command returns to the robot over TCP port 12346, but is currently printed for a human rather than driving the motors. Separately, RGB video is carried off the robot by hand, split into frames at 2 frames per second, run through CUT3R on Google Colab, and fused by Open3D into a coloured point cloud.">
+
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#8b9691"/>
+        </marker>
+        <marker id="ar-goal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="#FFE500"/>
+        </marker>
+      </defs>
+
+      <!-- lane labels -->
+      <text class="d-lane" x="16" y="30">ON THE ROBOT</text>
+      <text class="d-lane" x="500" y="30">ON THE LAPTOP · LIVE</text>
+      <text class="d-lane" x="500" y="318">OFF-BOARD · AFTER THE DRIVE</text>
+
+      <line class="d-hair" x1="430" y1="14" x2="430" y2="456"/>
+      <line class="d-hair" x1="16"  y1="292" x2="1284" y2="292"/>
+
+      <!-- robot boxes -->
+      <g class="d-node">
+        <rect x="16" y="52" width="320" height="74"/>
+        <text class="d-title" x="34" y="82">RPLiDAR A1M8</text>
+        <text class="d-sub"   x="34" y="104">~10 Hz revolution · angle + distance</text>
+      </g>
+      <g class="d-node">
+        <rect x="16" y="140" width="320" height="74"/>
+        <text class="d-title" x="34" y="170">L298N → 4× mecanum wheels</text>
+        <text class="d-sub"   x="34" y="192">gpiozero PWM · keyboard teleop</text>
+      </g>
+      <g class="d-node">
+        <rect x="16" y="330" width="320" height="74"/>
+        <text class="d-title" x="34" y="360">USB RGB camera</text>
+        <text class="d-sub"   x="34" y="382">records to a file · no calibration</text>
+      </g>
+
+      <!-- link: lidar -> laptop -->
+      <line class="d-wire" x1="336" y1="89" x2="500" y2="89" marker-end="url(#ar)"/>
+      <text class="d-wire-label" x="352" y="78">TCP :12345</text>
+      <text class="d-wire-label d-dim" x="352" y="110">10-byte frames</text>
+
+      <!-- laptop chain -->
+      <g class="d-node d-node--work">
+        <rect x="500" y="52" width="234" height="74"/>
+        <text class="d-title" x="518" y="82">PL-ICP scan match</text>
+        <text class="d-sub"   x="518" y="104">4 scans → keyframe · KD-tree</text>
+      </g>
+      <line class="d-wire" x1="734" y1="89" x2="782" y2="89" marker-end="url(#ar)"/>
+      <g class="d-node d-node--work">
+        <rect x="782" y="52" width="234" height="74"/>
+        <text class="d-title" x="800" y="82">Occupancy grid</text>
+        <text class="d-sub"   x="800" y="104">30 mm cells · raycast fill</text>
+      </g>
+      <line class="d-wire" x1="1016" y1="89" x2="1064" y2="89" marker-end="url(#ar)"/>
+      <g class="d-node d-node--out">
+        <rect x="1064" y="52" width="200" height="74"/>
+        <text class="d-title" x="1082" y="82">slam_map.png</text>
+        <text class="d-sub"   x="1082" y="104">7.5 mm per pixel</text>
+      </g>
+
+      <!-- png -> rrt -->
+      <path class="d-wire" d="M1164 126 L1164 160 L883 160 L883 186" marker-end="url(#ar)"/>
+      <g class="d-node d-node--work">
+        <rect x="766" y="186" width="234" height="74"/>
+        <text class="d-title" x="784" y="216">RRT planner</text>
+        <text class="d-sub"   x="784" y="238">5 000 iters · 5 px margin</text>
+      </g>
+      <line class="d-wire" x1="766" y1="223" x2="718" y2="223" marker-end="url(#ar)"/>
+      <g class="d-node d-node--out">
+        <rect x="484" y="186" width="234" height="74"/>
+        <text class="d-title" x="502" y="216">path_coords.json</text>
+        <text class="d-sub"   x="502" y="238">waypoints in mm + heading</text>
+      </g>
+
+      <!-- the open loop, drawn as intent -->
+      <path class="d-wire d-wire--goal" d="M484 223 L430 223 L430 177 L336 177" marker-end="url(#ar-goal)"/>
+      <text class="d-wire-label d-goal" x="34" y="246">TCP :12346 · GET_TURN</text>
+      <text class="d-wire-label d-goal d-dim" x="34" y="264">printed for a human, not yet driven</text>
+
+      <!-- reconstruction lane -->
+      <line class="d-wire" x1="336" y1="367" x2="500" y2="367" marker-end="url(#ar)"/>
+      <text class="d-wire-label d-dim" x="352" y="356">copied off by hand</text>
+      <g class="d-node d-node--work">
+        <rect x="500" y="330" width="200" height="74"/>
+        <text class="d-title" x="518" y="360">ffmpeg</text>
+        <text class="d-sub"   x="518" y="382">2 fps · 960 px wide</text>
+      </g>
+      <line class="d-wire" x1="700" y1="367" x2="748" y2="367" marker-end="url(#ar)"/>
+      <g class="d-node d-node--work">
+        <rect x="748" y="330" width="234" height="74"/>
+        <text class="d-title" x="766" y="360">CUT3R on Colab</text>
+        <text class="d-sub"   x="766" y="382">512 px · depth + pose</text>
+      </g>
+      <line class="d-wire" x1="982" y1="367" x2="1030" y2="367" marker-end="url(#ar)"/>
+      <g class="d-node d-node--out">
+        <rect x="1030" y="330" width="234" height="74"/>
+        <text class="d-title" x="1048" y="360">fused_pointcloud.ply</text>
+        <text class="d-sub"   x="1048" y="382">Open3D · voxel 1 cm</text>
+      </g>
+    </svg>
+  </div>
+
+  <p class="wrap diagram-note">
+    Drag the diagram sideways on a narrow screen. The
+    <span class="ink ink--goal">yellow return path</span> is the one link that is wired but not
+    closed &mdash; see <a href="#status">what works today</a>.
+  </p>
+</section>
+
+<!-- ============================= STAGES ============================= -->
+<section class="section" id="stages">
+  <div class="wrap">
+    <p class="eyebrow"><span class="rule"></span>Stage by stage</p>
+    <h2>Five problems, and what each one cost</h2>
+    <p class="section__lede">
+      Each stage is labelled with the number that actually governs it &mdash; the constant you
+      would reach for first if you were tuning this rover in a hallway at 2am.
+    </p>
+  </div>
+
+  <!-- STAGE: protocol -->
+  <article class="stage">
+    <div class="stage__meta">
+      <p class="stage__param">10 <span>bytes</span></p>
+      <p class="stage__paramlabel">per LiDAR reading, over the wire</p>
+    </div>
+    <div class="stage__body">
+      <h3>Getting the data off a Raspberry Pi that cannot keep up</h3>
+      <p>
+        A Pi 4 can spin the LiDAR and drive four motors, but scan matching on top of that starves
+        the serial buffer and the map tears. So the Pi stops being the brain and becomes a sensor
+        head: <code>lidar_sender.py</code> forwards every raw reading to a laptop over TCP and
+        does nothing else with it.
+      </p>
+      <p>
+        The frame is deliberately dumb &mdash; one sync byte, then a packed quality/angle/distance
+        triple. The receiver hunts for <code>0xA5</code> one byte at a time, so a dropped packet
+        costs a single reading instead of resyncing the whole stream.
+      </p>
+      <pre class="code" tabindex="0"><span class="c">// lidar_sender.py — Pi side</span>
+payload = b'\xa5' + struct.pack('&lt;Bff', quality, angle, distance)
+sock.sendall(payload)
+
+<span class="c">// LiDARSensor.py — laptop side, resync on every frame</span>
+while True:
+    sync = self.conn.recv(1)
+    if sync == b'\xa5': break</pre>
+      <p class="aside">
+        A new revolution is detected by watching the angle wrap backwards by more than 100&deg;,
+        which is cheaper and more reliable than trusting a start-of-scan flag over a lossy link.
+      </p>
+    </div>
+  </article>
+
+  <!-- STAGE: scan matching -->
+  <article class="stage stage--flip">
+    <div class="stage__meta">
+      <p class="stage__param">4 <span>scans</span></p>
+      <p class="stage__paramlabel">merged before the pose is allowed to move</p>
+    </div>
+    <div class="stage__body">
+      <h3>Knowing where you are, without an odometer</h3>
+      <p>
+        LOLA has no wheel encoders and no IMU. Every millimetre of its trajectory is inferred by
+        aligning the current LiDAR scan against the previous one. A single A1M8 revolution is too
+        sparse to align reliably, so four revolutions are stacked into one dense keyframe, then
+        thinned to 400 points to keep the match interactive.
+      </p>
+      <p>
+        The alignment is <strong>point-to-line ICP</strong>. Ordinary ICP drags a point toward the
+        nearest measured point, which fights you along a flat wall where the true correspondence
+        is somewhere in between. PL-ICP estimates a surface normal from each point's six
+        neighbours by PCA, projects onto that surface, and lets the scan slide freely along the
+        wall while still being pinned across it. Corridors stop pulling the pose backwards.
+      </p>
+      <p>
+        A gate then throws away any motion under 20&nbsp;mm or 2&deg;. Without it the map quietly
+        smears itself into mush while the rover sits still.
+      </p>
+    </div>
+    <figure class="stage__art">
+      <img src="maps/map-single.png" alt="A starburst of white rays radiating from a single point against black — one vantage point, unmoved." loading="lazy">
+      <figcaption>Parked. One vantage point, and the shadow of everything it cannot see through.</figcaption>
+    </figure>
+  </article>
+
+  <!-- STAGE: occupancy -->
+  <article class="stage">
+    <div class="stage__meta">
+      <p class="stage__param">30 <span>mm</span></p>
+      <p class="stage__paramlabel">one cell of the world</p>
+    </div>
+    <div class="stage__body">
+      <h3>Turning returns into a floor plan</h3>
+      <p>
+        The map is a plain Python dictionary keyed by 30&nbsp;mm cell. For each return, a Bresenham
+        line is walked from the rover to the hit point: every cell along the way is pushed toward
+        <span class="ink ink--free">free</span>, and only the endpoint is pushed toward
+        <span class="ink ink--occ">occupied</span>. Absence of evidence gets recorded as evidence
+        of absence, which is what makes the rooms come out as rooms instead of outlines.
+      </p>
+      <p>
+        On export, morphological closing bridges the speckle gaps between returns so walls read as
+        walls. The subtle part is the mask that follows: any cell already observed as free is
+        forbidden from being closed over. Without that, the algorithm helpfully seals every doorway
+        the rover just drove through.
+      </p>
+    </div>
+    <figure class="stage__art">
+      <img src="maps/map-traverse.png" alt="A wide occupancy grid: white rooms and corridor against black, with a thin green line tracing the rover's route through the middle." loading="lazy">
+      <figcaption>After driving. The <span class="ink ink--path">green trace</span> is the pose history that produced it.</figcaption>
+    </figure>
+  </article>
+
+  <!-- STAGE: planning -->
+  <article class="stage stage--flip">
+    <div class="stage__meta">
+      <p class="stage__param">5 000 <span>iters</span></p>
+      <p class="stage__paramlabel">of random tree growth per plan</p>
+    </div>
+    <div class="stage__body">
+      <h3>Choosing somewhere to go</h3>
+      <p>
+        The exported PNG is read straight back in as a planning surface: anything brighter than 200
+        is drivable, then eroded by 5&nbsp;px so the rover does not clip a doorframe it is entitled
+        to fit through. An RRT grows from the centre of the largest open region in 30&nbsp;px steps,
+        biased toward sampled goals one time in ten.
+      </p>
+      <p>
+        Waypoints are picked from the tree's leaves, furthest first, rejecting any that land too
+        near one already chosen &mdash; a cheap way to force coverage instead of a huddle. A
+        shortcut pass then deletes every waypoint the rover could have driven straight past.
+      </p>
+      <dl class="runstats">
+        <div><dt>Waypoints kept</dt><dd>3</dd></div>
+        <div><dt>Route length</dt><dd>3.39 m</dd></div>
+        <div><dt>Tree nodes</dt><dd>4 186</dd></div>
+        <div><dt>Solve time</dt><dd>8.9 s</dd></div>
+      </dl>
+      <p class="aside">
+        Measured from <code>path_outputs/path_coords_slam_map_20260115-210048_20260121-105508.json</code>,
+        not from a stopwatch.
+      </p>
+    </div>
+    <figure class="stage__art">
+      <img src="maps/path-overlay.png" alt="The same map with a red route drawn from a point labelled START, up to a corner, and down to a point labelled END." loading="lazy">
+      <figcaption>Three waypoints on a sparse map. Wide-open maps give the planner far more to work with.</figcaption>
+    </figure>
+  </article>
+
+  <!-- STAGE: cut3r -->
+  <article class="stage">
+    <div class="stage__meta">
+      <p class="stage__param">512 <span>px</span></p>
+      <p class="stage__paramlabel">the whole camera calibration</p>
+    </div>
+    <div class="stage__body">
+      <h3>Rebuilding the room from ordinary video</h3>
+      <p>
+        The occupancy grid is a floor plan &mdash; it knows where the walls are and nothing about what
+        is on them. For that, LOLA records plain RGB video and hands it to
+        <strong>CUT3R</strong>, a transformer that carries a persistent 3D state across frames and
+        predicts depth, confidence <em>and</em> camera pose per frame. There is no checkerboard, no
+        intrinsics file, and no depth sensor anywhere in the build.
+      </p>
+      <p>
+        Frames come out at 2&nbsp;fps, get inferred at 512&nbsp;px, then Open3D back-projects each
+        depth map, drops anything past 10&nbsp;m or under 0.30 confidence, moves it into world space
+        with the predicted pose, and voxel-downsamples the union to a 1&nbsp;cm cloud.
+      </p>
+      <p class="aside">
+        Two upstream patches are baked into the notebook and were the difference between working
+        and not: swapping a deprecated <code>tokens.type()</code> in the CUROPE CUDA kernel, and
+        forcing <code>weights_only=False</code> so the checkpoint still loads under PyTorch 2.6.
+      </p>
+    </div>
+  </article>
+</section>
+
+<!-- ============================= ROLLOUTS ============================= -->
+<section class="section section--rollouts" id="rollouts">
+  <div class="wrap">
+    <p class="eyebrow"><span class="rule"></span>Rollouts</p>
+    <h2>Both halves, running</h2>
+    <p class="section__lede">
+      Recorded during the build week. Nothing here is sped up or simulated.
+    </p>
+  </div>
+
+  <div class="wrap rollouts">
+    <figure class="rollout rollout--tall">
+      <video controls preload="none" playsinline poster="media/slam-poster.jpg">
+        <source src="media/slam-rollout.mp4" type="video/mp4">
+        Your browser cannot play this video.
+        <a href="media/slam-rollout.mp4">Download the SLAM rollout</a>.
+      </video>
+      <figcaption>
+        <h3>Live SLAM, filmed off the screen</h3>
+        <p>
+          The rover is on the floor of a CMU lounge; the laptop beside it is receiving the LiDAR
+          stream and growing the occupancy grid in real time. Watch the
+          <span class="ink ink--free">white</span> flood outward as raycasting clears cells the
+          beam passed through, while the terminal on the right keeps reporting revolutions per
+          minute and valid-point percentage.
+        </p>
+        <p class="meta">16 s &middot; no audio &middot; phone camera, deliberately</p>
+      </figcaption>
+    </figure>
+
+    <figure class="rollout">
+      <video controls preload="none" playsinline poster="media/reconstruction-poster.jpg">
+        <source src="media/reconstruction-rollout.mp4" type="video/mp4">
+        Your browser cannot play this video.
+        <a href="media/reconstruction-rollout.mp4">Download the reconstruction rollout</a>.
+      </video>
+      <figcaption>
+        <h3>The fused point cloud, orbited in MeshLab</h3>
+        <p>
+          The output of the CUT3R pass, opened cold in MeshLab and spun. The far wall, the door,
+          a desk, a chair and a framed picture all survive the fusion &mdash; from a handheld clip
+          and nothing else. The ragged lower edge is the confidence threshold doing its job on
+          floor pixels the model was unsure about.
+        </p>
+        <p class="meta">12 s &middot; no audio &middot; screen capture</p>
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ============================= HARDWARE ============================= -->
+<section class="section section--hw" id="hardware">
+  <div class="wrap">
+    <p class="eyebrow"><span class="rule"></span>Hardware</p>
+    <h2>What $154.74 buys</h2>
+
+    <table class="bom">
+      <caption>Excludes the Raspberry Pi 4 and miscellaneous wiring, which the team already had.</caption>
+      <thead>
+        <tr><th scope="col">Part</th><th scope="col">Qty</th><th scope="col" class="num">Cost</th><th scope="col">Note</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>RPLiDAR A1M8</td><td>1</td><td class="num">$104.94</td><td>The entire sensing budget</td></tr>
+        <tr><td>Mecanum chassis kit</td><td>1</td><td class="num">$39.21</td><td>Strafes without turning</td></tr>
+        <tr><td>L298N motor driver</td><td>1</td><td class="num">$10.59</td><td>Two channels per axle</td></tr>
+        <tr><td>USB camera</td><td>1</td><td class="num">&mdash;</td><td>An ordinary PC webcam</td></tr>
+        <tr><td>Power bank</td><td>1</td><td class="num">&mdash;</td><td>Runs the Pi</td></tr>
+        <tr><td>9 V alkaline</td><td>2</td><td class="num">&mdash;</td><td>Runs the motors</td></tr>
+      </tbody>
+      <tfoot><tr><th scope="row" colspan="2">Total</th><td class="num">$154.74</td><td></td></tr></tfoot>
+    </table>
+
+    <div class="hw-notes">
+      <div>
+        <h3>Printed parts</h3>
+        <p>
+          Sensor mounts and a replacement base, printed on a Bambu Lab X1 in PLA. Both are modelled
+          to print flat with no supports, because the week did not include time for support removal.
+          The STLs ship in the repository.
+        </p>
+      </div>
+      <div>
+        <h3>Why mecanum</h3>
+        <p>
+          Omnidirectional wheels let the rover strafe sideways without rotating. For a scan matcher
+          with no odometry that is a real advantage: translation-only moves are far easier to
+          resolve than a rotation that changes every correspondence at once.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================= STATUS ============================= -->
+<section class="section section--status" id="status">
+  <div class="wrap">
+    <p class="eyebrow"><span class="rule"></span>Honest status</p>
+    <h2>What works today, and what is still a wire</h2>
+    <p class="section__lede">
+      Seven days is seven days. Keeping this list accurate is more useful to anyone trying to
+      rebuild LOLA than a claim of full autonomy would be.
+    </p>
+
+    <div class="status-cols">
+      <div class="status-col status-col--done">
+        <h3><i class="sw sw--path"></i>Demonstrated</h3>
+        <ul>
+          <li>LiDAR streaming from the Pi to a laptop over TCP, with byte-level resync</li>
+          <li>PL-ICP scan matching, pose tracking and live occupancy mapping</li>
+          <li>Map export to PNG with gap closing that respects observed free space</li>
+          <li>RRT planning over an exported map, with waypoints in millimetres</li>
+          <li>End-to-end CUT3R reconstruction from a handheld clip to a fused point cloud</li>
+          <li>Keyboard teleop over all four mecanum wheels</li>
+        </ul>
+      </div>
+      <div class="status-col status-col--next">
+        <h3><i class="sw sw--goal"></i>Still a wire</h3>
+        <ul>
+          <li>
+            <strong>Closing the drive loop.</strong> The laptop already serves a turn command on
+            port 12346 and the Pi already asks for it &mdash; but the reply is printed to the
+            terminal for a person to read. Feeding it into the motor calls is the next commit.
+          </li>
+          <li>
+            <strong>Putting waypoints in the world frame.</strong> Planner output is measured from
+            the top-left of the exported PNG, not the SLAM origin. The crop offset is known at
+            export time and simply is not written into the JSON yet.
+          </li>
+          <li>
+            <strong>Loop closure.</strong> Pose comes from consecutive scan matching alone, so
+            long traverses drift. Revisiting a known place does not yet correct the map.
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================= RUN IT ============================= -->
+<section class="section section--run" id="run">
+  <div class="wrap">
+    <p class="eyebrow"><span class="rule"></span>Run it yourself</p>
+    <h2>Three commands and a notebook</h2>
+    <pre class="code code--wide" tabindex="0"><span class="c"># on the Pi — become a sensor head</span>
+python3 lidar_sender.py --host &lt;laptop-ip&gt;
+
+<span class="c"># on the laptop — receive, match, map. press s to export a PNG</span>
+python LiDARSensor.py --network
+
+<span class="c"># anywhere — plan a route over an exported map</span>
+python path_planner.py --input map_exports/slam_map_20260115-221847.png --num-waypoints 5</pre>
+    <p>
+      For the 3D pass, open <code>Vidto3Dmodel_Reconstruction.ipynb</code> in Google Colab, drop a
+      video into <code>inputs/</code>, and run the cells top to bottom. It expects a CUDA runtime;
+      a free T4 is enough.
+    </p>
+  </div>
+</section>
+
+<!-- ============================= TEAM ============================= -->
+<footer class="footer">
+  <div class="wrap footer__inner">
+    <figure class="team">
+      <img src="media/team.jpg" alt="The five-person LOLA team with the rover at Build18 2026." loading="lazy">
+    </figure>
+    <div class="footer__text">
+      <p class="eyebrow"><span class="rule"></span>Built by</p>
+      <h2>Five people, one week, one rover</h2>
+      <ul class="people">
+        <li><a href="https://www.linkedin.com/in/sam-mathew-1a9778254/">Sam Mathew</a></li>
+        <li><a href="https://www.linkedin.com/in/darrpinto/">Darren Pinto</a></li>
+        <li><a href="https://www.linkedin.com/in/tanay-mishra-a86b25274/">Tanay Mishra</a></li>
+        <li><a href="https://www.linkedin.com/in/jayden-chen-3038a22a7/">Jayden Chen</a></li>
+        <li><a href="https://www.linkedin.com/in/jintong-wang-096645289/">Jintong Wang</a></li>
+      </ul>
+      <p class="thanks">
+        With thanks to the Build18 organisers, the CMU ECE department, and the mentors who kept
+        the sprint upright. Reconstruction stands entirely on
+        <a href="https://github.com/CUT3R/CUT3R">CUT3R</a> (Wang, Zhang, Holynski, Efros and
+        Kanazawa, CVPR 2025).
+      </p>
+      <p class="colophon">
+        MIT licensed &middot;
+        <a href="https://github.com/SamEthanMathew/LOLA_Autonomous-3D-Mapping-Robot">Repository</a> &middot;
+        <a href="https://github.com/SamEthanMathew/LOLA_Autonomous-3D-Mapping-Robot/releases/tag/v1.0">Original demo release</a>
+      </p>
+    </div>
+  </div>
+</footer>
+
+<script src="sweep.js"></script>

@@ -12,6 +12,19 @@
 
 ---
 
+## Project site
+
+An illustrated walkthrough of the pipeline, with both demo rollouts embedded, lives in [`docs/`](docs/).
+
+```bash
+python -m http.server 8000 --directory docs
+# then open http://127.0.0.1:8000
+```
+
+To publish it, enable GitHub Pages with **Source: `main` / `docs`** in the repository settings.
+
+---
+
 ## Overview
 
 **LOLA** is a $150 mecanum-drive RC rover running on a Raspberry Pi 4 that autonomously explores and reconstructs 3D environments. The system combines LiDAR-based SLAM with RGB-only 3D reconstruction to create detailed spatial maps, all without relying on expensive depth cameras.
